@@ -408,7 +408,7 @@ def main():
         try:
             etf_px = dict(fetch_fund_klines(ZZHL_ETF_FALLBACK))
             m = dict(cyb_px)
-            common = [d for d in zzhl_px if d in m and d in etf_px and etf_px[d]]
+            common = [d for d, c in zzhl_px if d in m and d in etf_px and etf_px[d]]
             if common:
                 d = common[-1]
                 save_anchor({"date": d.isoformat(),
