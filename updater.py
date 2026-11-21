@@ -24,17 +24,20 @@ import urllib.request
 
 BASE = "https://fuyao.aicubes.cn"
 TZ = dt.timezone(dt.timedelta(hours=8))  # Asia/Shanghai
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "data.json")
+HERE = os.path.dirname(os.path.abspath(__file__))
+OUT = os.path.join(HERE, "docs", "data.json")
+ANCHOR = os.path.join(HERE, "docs", "anchor.json")  # ETF兜底时的比值锚定
 
 # 目标基金(用于估值百分位): 跟踪指数分别为 创业板指 / 中证红利低波动指数
 CYB_FUND = "159915.SZ"   # 易方达创业板ETF
 HLB_FUND = "512890.SH"   # 华泰柏瑞红利低波动ETF
-# 中证红利指数兜底: 若指数目录中没有"中证红利", 用中证红利ETF 日线替代
+# 中证红利指数兜底: 若指数数据不可用, 用中证红利ETF 日线 + 锚定换算
 ZZHL_ETF_FALLBACK = "515080.SH"  # 招商中证红利ETF
+EM_ZZHL_SECID = "1.000922"       # 东财 中证红利指数 secid
 
-YEARS = 5            # 指数日线最多取近 5 年(接口限制)
+YEARS = 5            # 指数日线最多取近 5 年
 BOND_YEARS = 5       # 国债收益率取近 5 年
-WARMUP_DAYS = 260    # 股息率(近12个月)需要约 252 个交易日的预热
+CSINDEX_PERF = "https://www.csindex.com.cn/csindex-home/perf/index-perf"
 
 
 def log(*a):
@@ -151,6 +154,43 @@ def fetch_index_klines(codes):
     return out
 
 
+def fetch_csindex_perf(code, years=YEARS):
+    """中证指数官网 指数日线收盘 -> [(date, close), ...]"""
+    start = today_sh() - dt.timedelta(days=years * 365)
+    end = today_sh()
+    resp = http_get(f"{CSINDEX_PERF}?indexCode={code}&startDate={start:%Y%m%d}&endDate={end:%Y%m%d}",
+                    headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.csindex.com.cn/"})
+    out = []
+    for row in resp.get("data") or []:
+        ts = row.get("tradeDate")
+        c = row.get("close")
+        if ts and c is not None:
+            try:
+                out.append((dt.date(int(ts[:4]), int(ts[4:6]), int(ts[6:8])), float(c)))
+            except (ValueError, TypeError):
+                pass
+    return out
+
+
+def fetch_em_klines(secid, years=YEARS):
+    """东方财富 指数日线收盘(兜底) -> [(date, close), ...]"""
+    start = today_sh() - dt.timedelta(days=years * 365)
+    end = today_sh()
+    resp = http_get("https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=" + secid +
+                    "&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
+                    f"&klt=101&fqt=0&beg={start:%Y%m%d}&end={end:%Y%m%d}&lmt=1000000",
+                    headers={"User-Agent": "Mozilla/5.0"})
+    out = []
+    for line in ((resp.get("data") or {}).get("klines")) or []:
+        parts = line.split(",")
+        if len(parts) >= 3 and parts[0] and parts[2]:
+            try:
+                out.append((dt.date.fromisoformat(parts[0]), float(parts[2])))
+            except (ValueError, IndexError):
+                pass
+    return out
+
+
 def fetch_fund_klines(code):
     """ETF 前复权日线(兜底用) -> [(date, close), ...]"""
     start = today_sh() - dt.timedelta(days=YEARS * 365)
@@ -164,8 +204,9 @@ def fetch_fund_klines(code):
 # ---------------------------------------------------------------- 估值百分位
 
 def fetch_percentile(fund_code):
-    """跟踪指数 PE TTM 五年分位 -> [(date, pct), ...]"""
-    start = today_sh() - dt.timedelta(days=(YEARS + 1) * 365)
+    """跟踪指数 PE TTM 五年分位 -> [(date, pct), ...]
+    接口区间上限 5 年; 返回可能同一天多条, 按日期去重保留末条。"""
+    start = today_sh() - dt.timedelta(days=YEARS * 365)
     end = today_sh()
     try:
         data = fuyao(f"/api/fund/performance/indicators-historical?thscode={fund_code}"
@@ -175,12 +216,12 @@ def fetch_percentile(fund_code):
             log(f"  !! 基金指标接口无权限(2003), 估值百分位将缺失: {e}")
             return []
         raise
-    out = []
+    out = {}
     for i in data.get("item") or []:
         v = i.get("track_index_pe_ttm_five_year_percentile")
         if i.get("date_ms") and v is not None:
-            out.append((ms2d(i["date_ms"]), float(v)))
-    return out
+            out[ms2d(i["date_ms"])] = float(v)
+    return sorted(out.items())
 
 
 # ---------------------------------------------------------------- 国债收益率
@@ -269,65 +310,133 @@ def dividend_yield_fund(price_series):
 
 # ---------------------------------------------------------------- 主流程
 
+def load_anchor():
+    """ETF兜底时的比值锚定: {"date": ..., "factor": index_ratio/etf_ratio}"""
+    try:
+        a = json.load(open(ANCHOR, encoding="utf-8"))
+        if a.get("date") and a.get("factor"):
+            return a
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def save_anchor(anchor):
+    try:
+        os.makedirs(os.path.dirname(ANCHOR), exist_ok=True)
+        json.dump(anchor, open(ANCHOR, "w", encoding="utf-8"), ensure_ascii=False)
+    except OSError as e:
+        log(f"  !! 锚定写入失败: {e}")
+
+
+def carry_forward(doc):
+    """某数据源当日故障时, 沿用上一次成功的数据, 并在 meta 里打标"""
+    if not os.path.exists(OUT):
+        return
+    try:
+        old = json.load(open(OUT, encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    for k, s in doc["series"].items():
+        if not s["points"]:
+            old_pts = (old.get("series") or {}).get(k) or {}
+            old_pts = old_pts.get("points") or []
+            if old_pts:
+                s["points"] = old_pts
+                doc["meta"]["stale_" + k] = True
+                log(f"  ~ {k} 本次无数据, 沿用上次 {len(old_pts)} 点")
+
+
 def main():
     global API_KEY
     API_KEY = os.environ.get("FUYAO_API_KEY", "").strip()
     if not API_KEY:
-        keyfile = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fuyao_key.txt")
+        keyfile = os.path.join(HERE, "fuyao_key.txt")
         if os.path.exists(keyfile):
             API_KEY = open(keyfile, encoding="utf-8").read().strip()
     if not API_KEY:
         print("错误: 缺少 API Key。用法: FUYAO_API_KEY=xxxx python updater.py", file=sys.stderr)
         sys.exit(2)
 
-    today = today_sh()
-    log(f"开始更新 {today} ...")
+    log(f"开始更新 {today_sh()} ...")
+    srcs = {}  # 数据来源标记
 
-    # 1. 指数目录 + 目标代码解析
+    # 1. 创业板指: 同花顺指数日线
     by_name = list_index_catalog()
-    idx = resolve_indexes(by_name)
-    log(f"指数代码: 创业板={idx['cyb']} 中证红利={idx['zzhl']} "
-        f"红利低波价格={idx['hlb_price']} 红利低波全收益={idx['hlb_tr']}")
+    cyb_code = pick(by_name, ["创业板指", "创业板指数"]) or "399006.SZ"
+    klines = fetch_index_klines([cyb_code])
+    cyb_px = klines.get(cyb_code) or []
+    log(f"创业板指 {cyb_code}: {len(cyb_px)} 天")
 
-    # 2. 指数日线(一次批量)
-    codes = [c for c in (idx["cyb"], idx["zzhl"], idx["hlb_price"], idx["hlb_tr"]) if c]
-    klines = fetch_index_klines(codes)
-    log(f"指数日线: " + ", ".join(f"{k}={len(v)}" for k, v in klines.items()))
-
-    cyb_px = klines.get(idx["cyb"]) or []
-    zzhl_px = klines.get(idx["zzhl"]) or []
-
-    # 中证红利兜底: ETF 前复权日线
-    zzhl_via_etf = False
+    # 2. 中证红利 000922: 中证指数官网 -> 东财 -> ETF兜底(锚定换算)
+    zzhl_px = []
+    try:
+        zzhl_px = fetch_csindex_perf("000922")
+        if zzhl_px:
+            srcs["zzhl"] = "中证指数官网·中证红利(000922)"
+    except Exception as e:
+        log(f"  !! 官网中证红利失败: {e}")
     if not zzhl_px:
-        log(f"!! 指数目录中没有中证红利指数, 用 {ZZHL_ETF_FALLBACK} ETF 日线兜底")
-        zzhl_px = fetch_fund_klines(ZZHL_ETF_FALLBACK)
-        zzhl_via_etf = True
-        idx["zzhl"] = f"{ZZHL_ETF_FALLBACK}(ETF兜底)"
+        try:
+            zzhl_px = fetch_em_klines(EM_ZZHL_SECID)
+            if zzhl_px:
+                srcs["zzhl"] = "东方财富·中证红利(000922)"
+        except Exception as e:
+            log(f"  !! 东财中证红利失败: {e}")
+    zzhl_via_etf = not zzhl_px
+    if zzhl_via_etf:
+        log(f"  !! 中证红利指数不可用, 用 {ZZHL_ETF_FALLBACK} ETF 兜底")
+        etf_px = fetch_fund_klines(ZZHL_ETF_FALLBACK)
+        anchor = load_anchor()
+        if etf_px and anchor:
+            f = anchor["factor"]
+            zzhl_px = [(d, c / f) for d, c in etf_px]  # 指数点位 = ETF价格 / factor
+            srcs["zzhl"] = f"{ZZHL_ETF_FALLBACK} ETF 日线÷锚定系数"
+            log(f"  已用锚定系数 {f} (锚定日 {anchor['date']})")
+        else:
+            log("  !! 无可用锚定, 比值序列将沿用上次数据")
 
     # 3. 比值序列
-    ratio_map = {d: (c, None) for d, c in cyb_px}
-    for d, c in zzhl_px:
-        if d in ratio_map and c:
-            cy, _ = ratio_map[d]
-            ratio_map[d] = (cy, cy / c)
-    ratio = [(d.isoformat(), round(v[1], 4)) for d, v in sorted(ratio_map.items()) if v[1]]
+    ratio = []
+    if cyb_px and zzhl_px:
+        m = dict(cyb_px)
+        ratio = [(d.isoformat(), round(m[d] / c, 4)) for d, c in zzhl_px if d in m and m[d]]
+    log(f"比值: {len(ratio)} 点")
 
-    # 4. 估值百分位
+    # 更新锚定(有真实指数数据时): factor = 指数比值 / ETF比值
+    if not zzhl_via_etf:
+        try:
+            etf_px = dict(fetch_fund_klines(ZZHL_ETF_FALLBACK))
+            m = dict(cyb_px)
+            common = [d for d in zzhl_px if d in m and d in etf_px and etf_px[d]]
+            if common:
+                d = common[-1]
+                save_anchor({"date": d.isoformat(),
+                             "factor": round((m[d] / dict(zzhl_px)[d]) / (m[d] / etf_px[d]), 8)})
+        except Exception as e:
+            log(f"  ~ 锚定更新失败(不影响主流程): {e}")
+
+    # 4. 估值百分位(同花顺基金指标)
     cyb_pct = fetch_percentile(CYB_FUND)
     hlb_pct = fetch_percentile(HLB_FUND)
     log(f"估值百分位: 创业板={len(cyb_pct)} 红利低波={len(hlb_pct)}")
 
-    # 5. 股息率: 优先全收益指数推演, 否则 ETF 分红推演
-    dy_method = "tr_index"
+    # 5. 股息率: 红利低波全收益/价格指数(中证指数官网)
     hlb_dy = []
-    if idx["hlb_tr"] and klines.get(idx["hlb_tr"]) and klines.get(idx["hlb_price"]):
-        hlb_dy = dividend_yield_tr(klines[idx["hlb_tr"]], klines[idx["hlb_price"]])
+    dy_method = "tr_index"
+    try:
+        hlb_tr = fetch_csindex_perf("H20269", years=YEARS + 1)
+        hlb_p = fetch_csindex_perf("H30269", years=YEARS + 1)
+        hlb_dy = dividend_yield_tr(hlb_tr, hlb_p)
+        if hlb_dy:
+            srcs["hlb"] = "中证指数官网·红利低波(H30269/H20269)"
+    except Exception as e:
+        log(f"  !! 官网红利低波指数失败: {e}")
     if not hlb_dy:
         dy_method = "fund_dividends"
-        price = klines.get(idx["hlb_price"]) or fetch_fund_klines(HLB_FUND)
+        price = fetch_fund_klines(HLB_FUND)
         hlb_dy = dividend_yield_fund(price)
-        log(f"!! 全收益指数不可用, 股息率改用 {HLB_FUND} 分红推演")
+        log(f"  !! 全收益指数不可用, 股息率改用 {HLB_FUND} 分红推演")
     log(f"股息率: {len(hlb_dy)} 点 (方法={dy_method})")
 
     # 6. 10年国债收益率 + 股债利差
@@ -339,7 +448,6 @@ def main():
     log(f"国债收益率: {len(bond_map)} 天")
 
     spread = []
-    dy_map = dict(hlb_dy)
     for d, dy in hlb_dy:
         if d in bond_map:
             spread.append((d.isoformat(), round(dy - bond_map[d], 4)))
@@ -348,20 +456,8 @@ def main():
     def pts(pairs):
         return [[d.isoformat(), v] for d, v in pairs]
 
-    latest = {}
-    if ratio:
-        latest["date"] = ratio[-1][0]
-        latest["ratio"] = ratio[-1][1]
-        latest["ratio_prev"] = ratio[-2][1] if len(ratio) > 1 else None
-        r = latest["ratio"]
-        latest["signal"] = "cyb" if r < 0.40 else ("hlb" if r > 0.60 else "neutral")
-    for key, pairs in (("cyb_pe_pct", cyb_pct), ("hlb_pe_pct", hlb_pct), ("hlb_dy", hlb_dy), ("spread", spread)):
-        latest[key] = pairs[-1][1] if pairs else None
-    latest["bond10y"] = sorted(bond_map.items())[-1][1] if bond_map else None
-
     doc = {
         "generated_at": dt.datetime.now(TZ).isoformat(timespec="seconds"),
-        "latest": latest,
         "series": {
             "ratio": {"name": "创业板指 / 中证红利", "points": ratio},
             "cyb_pe_pct": {"name": "创业板估值百分位(PE TTM 五年分位)", "points": pts(cyb_pct)},
@@ -370,7 +466,7 @@ def main():
             "spread": {"name": "红利低波股债利差(股息率-10年国债)", "points": spread},
         },
         "meta": {
-            "index_codes": idx,
+            "sources": srcs,
             "percentile_funds": {"cyb": CYB_FUND, "hlb": HLB_FUND},
             "dy_method": dy_method,
             "zzhl_via_etf": zzhl_via_etf,
@@ -379,7 +475,25 @@ def main():
         },
     }
 
-    # 数据未变化则跳过写入(避免无意义提交)
+    # 8. 断源保底: 某系列本次无数据时沿用上次
+    carry_forward(doc)
+
+    # 9. 最新值 + 信号
+    latest = {}
+    ratio_p = doc["series"]["ratio"]["points"]
+    if ratio_p:
+        latest["date"] = ratio_p[-1][0]
+        latest["ratio"] = ratio_p[-1][1]
+        latest["ratio_prev"] = ratio_p[-2][1] if len(ratio_p) > 1 else None
+        r = latest["ratio"]
+        latest["signal"] = "cyb" if r < 0.40 else ("hlb" if r > 0.60 else "neutral")
+    for key in ("cyb_pe_pct", "hlb_pe_pct", "hlb_dy", "spread"):
+        p = doc["series"][key]["points"]
+        latest[key] = p[-1][1] if p else None
+    latest["bond10y"] = sorted(bond_map.items())[-1][1] if bond_map else None
+    doc["latest"] = latest
+
+    # 10. 数据未变化则跳过写入(避免无意义提交)
     if os.path.exists(OUT):
         try:
             old = json.load(open(OUT, encoding="utf-8"))
