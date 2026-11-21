@@ -19,6 +19,7 @@
   --border: rgba(11,11,11,0.10);
   --series-1: #2a78d6;   /* 创业板(蓝) */
   --series-2: #eb6834;   /* 红利(橙) */
+  --series-3: #1baf7a;   /* 沪深300(青绿) */
 }
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) .viz-root {
@@ -34,6 +35,7 @@
     --border: rgba(255,255,255,0.10);
     --series-1: #3987e5;
     --series-2: #d95926;
+    --series-3: #199e70;
   }
 }
 :root[data-theme="dark"] .viz-root {
@@ -49,6 +51,7 @@
   --border: rgba(255,255,255,0.10);
   --series-1: #3987e5;
   --series-2: #d95926;
+  --series-3: #199e70;
 }
 :root[data-theme="light"] .viz-root {
   color-scheme: light;
@@ -168,7 +171,9 @@ footer b { color: var(--text-secondary); font-weight: 600; }
     </div>
 
     <div class="tiles" style="margin-bottom:12px">
+      <div class="tile"><div class="t-label"><span class="t-dot" style="background:var(--series-3)"></span>沪深300</div><div class="t-value" id="t-hs">--</div><div class="t-delta" id="d-hs"></div></div>
       <div class="tile"><div class="t-label"><span class="t-dot" style="background:var(--series-1)"></span>创业板估值百分位</div><div class="t-value" id="t-cyb">--</div><div class="t-delta" id="d-cyb"></div></div>
+      <div class="tile"><div class="t-label"><span class="t-dot" style="background:var(--series-3)"></span>沪深300估值百分位</div><div class="t-value" id="t-hsp">--</div><div class="t-delta" id="d-hsp"></div></div>
       <div class="tile"><div class="t-label"><span class="t-dot" style="background:var(--series-2)"></span>红利低波估值百分位</div><div class="t-value" id="t-hlb">--</div><div class="t-delta" id="d-hlb"></div></div>
       <div class="tile"><div class="t-label"><span class="t-dot" style="background:var(--series-2)"></span>红利低波股息率</div><div class="t-value" id="t-dy">--</div><div class="t-delta" id="d-dy"></div></div>
       <div class="tile"><div class="t-label"><span class="t-dot" style="background:var(--series-2)"></span>红利低波股债利差</div><div class="t-value" id="t-sp">--</div><div class="t-delta" id="d-sp"></div></div>
@@ -177,8 +182,10 @@ footer b { color: var(--text-secondary); font-weight: 600; }
     <div class="filters" id="filters">
       <button data-days="365">近1年</button>
       <button data-days="1095">近3年</button>
-      <button data-days="1825">近5年</button>
-      <button data-days="0" class="active">全部</button>
+      <button data-days="1825" class="active">近5年</button>
+      <button data-days="3650">近10年</button>
+      <button data-days="7300">近20年</button>
+      <button data-days="0">全部</button>
     </div>
 
     <div class="card">
@@ -188,9 +195,21 @@ footer b { color: var(--text-secondary); font-weight: 600; }
     </div>
 
     <div class="card">
+      <h2>沪深300 点位</h2>
+      <div class="desc">沪深300指数收盘点位,大盘整体走势参考。</div>
+      <div class="chart" id="chart-hs300"></div>
+    </div>
+
+    <div class="card">
       <h2>创业板估值百分位</h2>
       <div class="desc">创业板指 PE TTM 近五年分位(经易方达创业板ETF 159915 跟踪指数口径)。低于 30% 为历史低估区,高于 70% 为高估区。</div>
       <div class="chart" id="chart-cyb_pe_pct"></div>
+    </div>
+
+    <div class="card">
+      <h2>沪深300估值百分位</h2>
+      <div class="desc">沪深300 PE TTM 近五年分位(经华泰柏瑞沪深300ETF 510300 跟踪指数口径)。</div>
+      <div class="chart" id="chart-hs300_pe_pct"></div>
     </div>
 
     <div class="card">
@@ -218,7 +237,7 @@ footer b { color: var(--text-secondary); font-weight: 600; }
     </div>
 
     <footer>
-      <b>数据来源</b>:创业板指、估值百分位·同花顺金融数据API(fuyao.aicubes.cn);中证红利、红利低波指数·中证指数官网(csindex.com.cn);10年国债收益率·中国货币网(中债)。<br>
+      <b>数据来源</b>:创业板指·腾讯行情;中证红利、沪深300、红利低波指数·中证指数官网(csindex.com.cn);估值百分位·同花顺金融数据API(fuyao.aicubes.cn);10年国债收益率·中国货币网(中债)。<br>
       <b>更新</b>:每个交易日约 18:35 自动更新(GitHub Actions),休市日数据不变。<br>
       <b>信号规则</b>:比值 &lt; 0.4 预示创业板较好的投资机会;比值 &gt; 0.6 预示红利低波较好的机会。<br>
       本页面数据仅供参考,不构成任何投资建议。
@@ -230,16 +249,16 @@ footer b { color: var(--text-secondary); font-weight: 600; }
 <script>
 (function () {
   "use strict";
-  var DATA = null, charts = {}, rangeDays = 0;
+  var DATA = null, charts = {}, rangeDays = 1825;
 
   /* ---------- 主题 ---------- */
   var THEMES = {
     light: { surface:'#fcfcfb', ink:'#0b0b0b', secondary:'#52514e', muted:'#898781',
              grid:'#e1e0d9', baseline:'#c3c2b7', border:'rgba(11,11,11,0.12)',
-             blue:'#2a78d6', orange:'#eb6834' },
+             blue:'#2a78d6', orange:'#eb6834', aqua:'#1baf7a' },
     dark:  { surface:'#1a1a19', ink:'#f0efec', secondary:'#c3c2b7', muted:'#898781',
              grid:'#2c2c2a', baseline:'#383835', border:'rgba(255,255,255,0.14)',
-             blue:'#3987e5', orange:'#d95926' }
+             blue:'#3987e5', orange:'#d95926', aqua:'#199e70' }
   };
   function getMode() {
     var stored = localStorage.getItem('monitor-theme');
@@ -267,7 +286,13 @@ footer b { color: var(--text-secondary); font-weight: 600; }
       fmt:function(v){return v.toFixed(3);},
       markLines:[ {v:0.4,label:'0.4 · 创业板机会区',pos:'insideEndTop'},
                   {v:0.6,label:'0.6 · 红利低波机会区',pos:'insideEndBottom'} ] },
+    { key:'hs300',      color:'aqua',   yMin:null, yMax:null,
+      fmt:function(v){return v.toFixed(2);}, markLines:[] },
     { key:'cyb_pe_pct', color:'blue',   yMin:0, yMax:100,
+      fmt:function(v){return v.toFixed(1)+'%';},
+      markLines:[ {v:30,label:'30% 低估区',pos:'insideEndBottom'},
+                  {v:70,label:'70% 高估区',pos:'insideEndTop'} ] },
+    { key:'hs300_pe_pct', color:'aqua', yMin:0, yMax:100,
       fmt:function(v){return v.toFixed(1)+'%';},
       markLines:[ {v:30,label:'30% 低估区',pos:'insideEndBottom'},
                   {v:70,label:'70% 高估区',pos:'insideEndTop'} ] },
@@ -400,7 +425,9 @@ footer b { color: var(--text-secondary); font-weight: 600; }
       (d === null ? '' : '较上一交易日 <b>' + (d >= 0 ? '+' : '') + d.toFixed(3) + '</b> · ') +
       '<b>&lt;0.4</b> 创业板机会 · <b>&gt;0.6</b> 红利低波机会';
 
+    setTile('hs', L.hs300, '', '1');
     setTile('cyb', L.cyb_pe_pct, '%', '1');
+    setTile('hsp', L.hs300_pe_pct, '%', '1');
     setTile('hlb', L.hlb_pe_pct, '%', '1');
     setTile('dy', L.hlb_dy, '%', '2');
     setTile('sp', L.spread, '%', '2');
@@ -408,7 +435,7 @@ footer b { color: var(--text-secondary); font-weight: 600; }
 
   function setTile(id, v, suffix, dec) {
     document.getElementById('t-' + id).textContent = num(v, +dec) + (v === null || v === undefined ? '' : suffix);
-    var key = { cyb: 'cyb_pe_pct', hlb: 'hlb_pe_pct', dy: 'hlb_dy', sp: 'spread' }[id];
+    var key = { hs: 'hs300', cyb: 'cyb_pe_pct', hsp: 'hs300_pe_pct', hlb: 'hlb_pe_pct', dy: 'hlb_dy', sp: 'spread' }[id];
     var pts = (DATA.series[key] || {}).points || [];
     var d = null;
     if (pts.length > 1 && pts[pts.length - 1][1] !== null && pts[pts.length - 2][1] !== null) {
@@ -418,7 +445,7 @@ footer b { color: var(--text-secondary); font-weight: 600; }
   }
 
   function renderTable() {
-    var keys = ['ratio', 'cyb_pe_pct', 'hlb_pe_pct', 'hlb_dy', 'spread'];
+    var keys = ['ratio', 'hs300', 'cyb_pe_pct', 'hs300_pe_pct', 'hlb_pe_pct', 'hlb_dy', 'spread'];
     var maps = {};
     var allDates = [];
     keys.forEach(function (k) {
@@ -429,14 +456,16 @@ footer b { color: var(--text-secondary); font-weight: 600; }
     allDates = ratioPts.map(function (p) { return p[0]; });
     var lastN = allDates.slice(-5).reverse();
 
-    var head = ['日期', '比值', '创业板PE分位', '红利低波PE分位', '股息率', '股债利差'];
+    var head = ['日期', '比值', '沪深300', '创业板PE分位', '沪深300PE分位', '红利低波PE分位', '股息率', '股债利差'];
     var th = head.map(function (h) { return '<th>' + h + '</th>'; }).join('');
     var rows = lastN.map(function (d, i) {
       var cls = i === 0 ? ' class="latest"' : '';
       var cells = [
         '<td>' + d + '</td>',
         '<td class="num">' + (maps.ratio[d] === undefined ? '--' : maps.ratio[d].toFixed(3)) + '</td>',
+        '<td class="num">' + (maps.hs300[d] === undefined ? '--' : maps.hs300[d].toFixed(2)) + '</td>',
         '<td class="num">' + (maps.cyb_pe_pct[d] === undefined ? '--' : maps.cyb_pe_pct[d].toFixed(1) + '%') + '</td>',
+        '<td class="num">' + (maps.hs300_pe_pct[d] === undefined ? '--' : maps.hs300_pe_pct[d].toFixed(1) + '%') + '</td>',
         '<td class="num">' + (maps.hlb_pe_pct[d] === undefined ? '--' : maps.hlb_pe_pct[d].toFixed(1) + '%') + '</td>',
         '<td class="num">' + (maps.hlb_dy[d] === undefined ? '--' : maps.hlb_dy[d].toFixed(2) + '%') + '</td>',
         '<td class="num">' + (maps.spread[d] === undefined ? '--' : maps.spread[d].toFixed(2) + '%') + '</td>'

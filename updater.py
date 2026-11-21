@@ -28,15 +28,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "docs", "data.json")
 ANCHOR = os.path.join(HERE, "docs", "anchor.json")  # ETF兜底时的比值锚定
 
-# 目标基金(用于估值百分位): 跟踪指数分别为 创业板指 / 中证红利低波动指数
+# 目标基金(用于估值百分位): 跟踪指数分别为 创业板指 / 沪深300 / 中证红利低波动指数
 CYB_FUND = "159915.SZ"   # 易方达创业板ETF
+HS300_FUND = "510300.SH" # 华泰柏瑞沪深300ETF
 HLB_FUND = "512890.SH"   # 华泰柏瑞红利低波动ETF
 # 中证红利指数兜底: 若指数数据不可用, 用中证红利ETF 日线 + 锚定换算
 ZZHL_ETF_FALLBACK = "515080.SH"  # 招商中证红利ETF
 EM_ZZHL_SECID = "1.000922"       # 东财 中证红利指数 secid
 
-YEARS = 5            # 指数日线最多取近 5 年
-BOND_YEARS = 5       # 国债收益率取近 5 年
+YEARS = 5            # 同花顺接口最多取近 5 年(估值百分位)
+LONG_YEARS = 20      # 指数日线/股息率取近 20 年
+BOND_YEARS = 20      # 国债收益率取近 20 年(接口按年分段, 取到多少算多少)
 CSINDEX_PERF = "https://www.csindex.com.cn/csindex-home/perf/index-perf"
 
 
@@ -191,6 +193,28 @@ def fetch_em_klines(secid, years=YEARS):
     return out
 
 
+def fetch_tencent_klines(symbol, years=LONG_YEARS):
+    """腾讯行情 指数日线收盘(创业板指等) -> [(date, close), ...]
+    symbol 如 sz399006; 指数不支持复权, adjust 参数留空。
+    接口单次返回上限约 5 年, 按 4 年分段抓取再合并去重。"""
+    end = today_sh()
+    out, chunk_start = {}, end - dt.timedelta(days=years * 365)
+    while chunk_start <= end:
+        chunk_end = min(chunk_start + dt.timedelta(days=4 * 365 - 1), end)
+        resp = http_get("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?"
+                        f"param={symbol},day,{chunk_start:%Y-%m-%d},{chunk_end:%Y-%m-%d},2000,",
+                        headers={"User-Agent": "Mozilla/5.0", "Referer": "https://gu.qq.com/"})
+        node = (resp.get("data") or {}).get(symbol) or {}
+        for bar in node.get("day") or node.get("qfqday") or []:
+            if len(bar) >= 3 and bar[0] and bar[2]:
+                try:
+                    out[dt.date.fromisoformat(bar[0])] = float(bar[2])
+                except (ValueError, TypeError):
+                    pass
+        chunk_start = chunk_end + dt.timedelta(days=1)
+    return sorted(out.items())
+
+
 def fetch_fund_klines(code):
     """ETF 前复权日线(兜底用) -> [(date, close), ...]"""
     start = today_sh() - dt.timedelta(days=YEARS * 365)
@@ -228,37 +252,25 @@ def fetch_percentile(fund_code):
 
 def fetch_bond10y():
     """中国货币网 10年期国债到期收益率 -> {date: yield%}
-    接口单次查询范围上限约 1 年, 按 364 天分段抓取再合并。"""
+    接口单次查询范围上限约 1 年, 分页不可靠; 按 270 天分段(每段必在 1 页内)再合并。"""
     end = today_sh()
     out = {}
     chunk_start = end - dt.timedelta(days=BOND_YEARS * 365)
     while chunk_start <= end:
-        chunk_end = min(chunk_start + dt.timedelta(days=364), end)
-        page = 0
-        while True:
-            resp = http_post(
-                "https://www.chinamoney.com.cn/ags/ms/cm-u-bk-currency/SddsIntrRateGovYldHis",
-                {"startDate": chunk_start.isoformat(), "endDate": chunk_end.isoformat(),
-                 "pageNum": str(page), "pageSize": "200",
-                 "curveType": "YIELD_CURVE_TYPE1", "bondType": "BOND_TYPE7", "tenor": "10"})
-            recs = resp.get("records") or []
-            if not recs:
-                break
-            for r in recs:
-                ds = r.get("dateString")
-                v = r.get("tenRate")
-                if ds and v is not None:
-                    try:
-                        out[dt.date.fromisoformat(ds)] = float(v)
-                    except ValueError:
-                        pass
-            page_total = (resp.get("data") or {}).get("pageTotal") or 0
-            page += 1
-            if page_total and page >= page_total:
-                break
-            if page > 10:
-                log("  !! 国债分页异常, 提前停止")
-                break
+        chunk_end = min(chunk_start + dt.timedelta(days=269), end)
+        resp = http_post(
+            "https://www.chinamoney.com.cn/ags/ms/cm-u-bk-currency/SddsIntrRateGovYldHis",
+            {"startDate": chunk_start.isoformat(), "endDate": chunk_end.isoformat(),
+             "pageNum": "0", "pageSize": "200",
+             "curveType": "YIELD_CURVE_TYPE1", "bondType": "BOND_TYPE7", "tenor": "10"})
+        for r in resp.get("records") or []:
+            ds = r.get("dateString")
+            v = r.get("tenRate")
+            if ds and v is not None:
+                try:
+                    out[dt.date.fromisoformat(ds)] = float(v)
+                except ValueError:
+                    pass
         chunk_start = chunk_end + dt.timedelta(days=1)
     return out
 
@@ -361,24 +373,33 @@ def main():
     log(f"开始更新 {today_sh()} ...")
     srcs = {}  # 数据来源标记
 
-    # 1. 创业板指: 同花顺指数日线
-    by_name = list_index_catalog()
-    cyb_code = pick(by_name, ["创业板指", "创业板指数"]) or "399006.SZ"
-    klines = fetch_index_klines([cyb_code])
-    cyb_px = klines.get(cyb_code) or []
-    log(f"创业板指 {cyb_code}: {len(cyb_px)} 天")
+    # 1. 创业板指(近20年): 腾讯行情 -> 同花顺(5年)兜底
+    cyb_px = []
+    try:
+        cyb_px = fetch_tencent_klines("sz399006")
+        if cyb_px:
+            srcs["cyb"] = "腾讯行情·创业板指(399006)"
+    except Exception as e:
+        log(f"  !! 腾讯创业板指失败: {e}")
+    if not cyb_px:
+        by_name = list_index_catalog()
+        cyb_code = pick(by_name, ["创业板指", "创业板指数"]) or "399006.SZ"
+        cyb_px = (fetch_index_klines([cyb_code]) or {}).get(cyb_code) or []
+        if cyb_px:
+            srcs["cyb"] = "同花顺·创业板指(5年)"
+    log(f"创业板指: {len(cyb_px)} 天")
 
-    # 2. 中证红利 000922: 中证指数官网 -> 东财 -> ETF兜底(锚定换算)
+    # 2. 中证红利 000922(近20年): 中证指数官网 -> 东财 -> ETF兜底(锚定换算)
     zzhl_px = []
     try:
-        zzhl_px = fetch_csindex_perf("000922")
+        zzhl_px = fetch_csindex_perf("000922", years=LONG_YEARS)
         if zzhl_px:
             srcs["zzhl"] = "中证指数官网·中证红利(000922)"
     except Exception as e:
         log(f"  !! 官网中证红利失败: {e}")
     if not zzhl_px:
         try:
-            zzhl_px = fetch_em_klines(EM_ZZHL_SECID)
+            zzhl_px = fetch_em_klines(EM_ZZHL_SECID, years=LONG_YEARS)
             if zzhl_px:
                 srcs["zzhl"] = "东方财富·中证红利(000922)"
         except Exception as e:
@@ -396,7 +417,17 @@ def main():
         else:
             log("  !! 无可用锚定, 比值序列将沿用上次数据")
 
-    # 3. 比值序列
+    # 3. 沪深300(近20年): 中证指数官网
+    hs300_px = []
+    try:
+        hs300_px = fetch_csindex_perf("000300", years=LONG_YEARS)
+        if hs300_px:
+            srcs["hs300"] = "中证指数官网·沪深300(000300)"
+    except Exception as e:
+        log(f"  !! 官网沪深300失败: {e}")
+    log(f"沪深300: {len(hs300_px)} 天")
+
+    # 4. 比值序列(创业板指/中证红利)
     ratio = []
     if cyb_px and zzhl_px:
         m = dict(cyb_px)
@@ -416,17 +447,18 @@ def main():
         except Exception as e:
             log(f"  ~ 锚定更新失败(不影响主流程): {e}")
 
-    # 4. 估值百分位(同花顺基金指标)
+    # 5. 估值百分位(同花顺基金指标, 近5年)
     cyb_pct = fetch_percentile(CYB_FUND)
+    hs300_pct = fetch_percentile(HS300_FUND)
     hlb_pct = fetch_percentile(HLB_FUND)
-    log(f"估值百分位: 创业板={len(cyb_pct)} 红利低波={len(hlb_pct)}")
+    log(f"估值百分位: 创业板={len(cyb_pct)} 沪深300={len(hs300_pct)} 红利低波={len(hlb_pct)}")
 
-    # 5. 股息率: 红利低波全收益/价格指数(中证指数官网)
+    # 6. 股息率: 红利低波全收益/价格指数(中证指数官网, 近20年)
     hlb_dy = []
     dy_method = "tr_index"
     try:
-        hlb_tr = fetch_csindex_perf("H20269", years=YEARS + 1)
-        hlb_p = fetch_csindex_perf("H30269", years=YEARS + 1)
+        hlb_tr = fetch_csindex_perf("H20269", years=LONG_YEARS + 1)
+        hlb_p = fetch_csindex_perf("H30269", years=LONG_YEARS + 1)
         hlb_dy = dividend_yield_tr(hlb_tr, hlb_p)
         if hlb_dy:
             srcs["hlb"] = "中证指数官网·红利低波(H30269/H20269)"
@@ -439,7 +471,7 @@ def main():
         log(f"  !! 全收益指数不可用, 股息率改用 {HLB_FUND} 分红推演")
     log(f"股息率: {len(hlb_dy)} 点 (方法={dy_method})")
 
-    # 6. 10年国债收益率 + 股债利差
+    # 7. 10年国债收益率 + 股债利差
     bond_map = {}
     try:
         bond_map = fetch_bond10y()
@@ -452,7 +484,7 @@ def main():
         if d in bond_map:
             spread.append([d.isoformat(), round(dy - bond_map[d], 4)])
 
-    # 7. 组装输出
+    # 8. 组装输出
     def pts(pairs):
         return [[d.isoformat(), v] for d, v in pairs]
 
@@ -460,14 +492,16 @@ def main():
         "generated_at": dt.datetime.now(TZ).isoformat(timespec="seconds"),
         "series": {
             "ratio": {"name": "创业板指 / 中证红利", "points": ratio},
+            "hs300": {"name": "沪深300", "points": pts(hs300_px)},
             "cyb_pe_pct": {"name": "创业板估值百分位(PE TTM 五年分位)", "points": pts(cyb_pct)},
+            "hs300_pe_pct": {"name": "沪深300估值百分位(PE TTM 五年分位)", "points": pts(hs300_pct)},
             "hlb_pe_pct": {"name": "红利低波估值百分位(PE TTM 五年分位)", "points": pts(hlb_pct)},
             "hlb_dy": {"name": "红利低波股息率(近12个月)", "points": pts(hlb_dy)},
             "spread": {"name": "红利低波股债利差(股息率-10年国债)", "points": spread},
         },
         "meta": {
             "sources": srcs,
-            "percentile_funds": {"cyb": CYB_FUND, "hlb": HLB_FUND},
+            "percentile_funds": {"cyb": CYB_FUND, "hs300": HS300_FUND, "hlb": HLB_FUND},
             "dy_method": dy_method,
             "zzhl_via_etf": zzhl_via_etf,
             "bond_source": "中国货币网·中债国债到期收益率(10年)",
@@ -475,10 +509,10 @@ def main():
         },
     }
 
-    # 8. 断源保底: 某系列本次无数据时沿用上次
+    # 9. 断源保底: 某系列本次无数据时沿用上次
     carry_forward(doc)
 
-    # 9. 最新值 + 信号
+    # 10. 最新值 + 信号
     latest = {}
     ratio_p = doc["series"]["ratio"]["points"]
     if ratio_p:
@@ -487,7 +521,7 @@ def main():
         latest["ratio_prev"] = ratio_p[-2][1] if len(ratio_p) > 1 else None
         r = latest["ratio"]
         latest["signal"] = "cyb" if r < 0.40 else ("hlb" if r > 0.60 else "neutral")
-    for key in ("cyb_pe_pct", "hlb_pe_pct", "hlb_dy", "spread"):
+    for key in ("hs300", "cyb_pe_pct", "hs300_pe_pct", "hlb_pe_pct", "hlb_dy", "spread"):
         p = doc["series"][key]["points"]
         latest[key] = p[-1][1] if p else None
     latest["bond10y"] = sorted(bond_map.items())[-1][1] if bond_map else None
@@ -508,7 +542,8 @@ def main():
         json.dump(doc, f, ensure_ascii=False, separators=(",", ":"))
     log(f"已写入 {OUT} ({os.path.getsize(OUT) // 1024} KB)")
     log(f"最新({latest.get('date')}): 比值={latest.get('ratio')} 信号={latest.get('signal')} "
-        f"创业板PE分位={latest.get('cyb_pe_pct')} 红利低波PE分位={latest.get('hlb_pe_pct')} "
+        f"沪深300={latest.get('hs300')} 创业板PE分位={latest.get('cyb_pe_pct')} "
+        f"沪深300PE分位={latest.get('hs300_pe_pct')} 红利低波PE分位={latest.get('hlb_pe_pct')} "
         f"股息率={latest.get('hlb_dy')} 股债利差={latest.get('spread')}")
 
 
