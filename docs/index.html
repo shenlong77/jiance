@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f9f9f7">
+<title>创业板 · 红利 比值与估值监测</title>
+<style>
+.viz-root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface-1: #fcfcfb;
+  --surface-2: #f0efec;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --baseline: #c3c2b7;
+  --border: rgba(11,11,11,0.10);
+  --series-1: #2a78d6;   /* 创业板(蓝) */
+  --series-2: #eb6834;   /* 红利(橙) */
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .viz-root {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface-1: #1a1a19;
+    --surface-2: #383835;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255,255,255,0.10);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+  }
+}
+:root[data-theme="dark"] .viz-root {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface-1: #1a1a19;
+  --surface-2: #383835;
+  --text-primary: #f0efec;
+  --text-secondary: #c3c2b7;
+  --muted: #898781;
+  --grid: #2c2c2a;
+  --baseline: #383835;
+  --border: rgba(255,255,255,0.10);
+  --series-1: #3987e5;
+  --series-2: #d95926;
+}
+:root[data-theme="light"] .viz-root {
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--page);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+.wrap { max-width: 720px; margin: 0 auto; padding: 14px 14px calc(28px + env(safe-area-inset-bottom)); }
+
+/* 头部 */
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 6px 2px 12px; }
+header h1 { font-size: 19px; font-weight: 600; letter-spacing: .01em; }
+header .sub { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
+#theme-btn {
+  flex: none; width: 34px; height: 34px; border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface-1); color: var(--text-secondary);
+  font-size: 15px; line-height: 1;
+}
+#theme-btn:active { transform: scale(.95); }
+
+/* 卡片 */
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+.card h2 { font-size: 15px; font-weight: 600; }
+.card .desc { font-size: 12px; color: var(--text-secondary); margin: 4px 0 8px; line-height: 1.5; }
+
+/* 主指标 */
+.hero-label { font-size: 12px; color: var(--text-secondary); }
+.hero-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 6px 0 4px; }
+.hero-value { font-size: 46px; font-weight: 600; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 999px;
+  font-size: 13px; font-weight: 600; white-space: nowrap;
+}
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+.chip-cyb { background: var(--series-1); color: #fff; }
+.chip-hlb { background: var(--series-2); color: #fff; }
+.chip-neutral { background: var(--surface-2); color: var(--text-secondary); }
+.hero-meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.hero-meta b { color: var(--text-secondary); font-weight: 600; }
+
+/* 副指标格 */
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tile { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--surface-1); }
+.tile .t-label { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+.tile .t-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.tile .t-value { font-size: 22px; font-weight: 600; margin-top: 5px; font-variant-numeric: tabular-nums; }
+.tile .t-delta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* 范围筛选 */
+.filters { display: flex; gap: 8px; margin: 2px 0 12px; flex-wrap: wrap; }
+.filters button {
+  font: inherit; font-size: 13px; color: var(--text-secondary); cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface-1);
+  padding: 6px 14px; border-radius: 999px;
+}
+.filters button.active { background: var(--text-primary); color: var(--surface-1); border-color: var(--text-primary); font-weight: 600; }
+
+/* 图表 */
+.chart { width: 100%; height: 240px; }
+.chart.tall { height: 264px; }
+.chart-empty { font-size: 13px; color: var(--muted); padding: 40px 0; text-align: center; }
+
+/* 表格 */
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th, td { padding: 7px 6px; text-align: right; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--baseline); }
+th:first-child, td:first-child { text-align: left; }
+tr:last-child td { border-bottom: none; }
+tr.latest td { background: var(--surface-2); font-weight: 600; }
+td.num { color: var(--text-primary); }
+.table-note { font-size: 11.5px; color: var(--muted); margin-top: 8px; line-height: 1.6; }
+
+/* 页脚 */
+footer { font-size: 11.5px; color: var(--muted); line-height: 1.8; padding: 4px 2px; }
+footer b { color: var(--text-secondary); font-weight: 600; }
+
+#err { display: none; border: 1px solid var(--border); background: var(--surface-1); border-radius: 14px; padding: 16px; font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
+#err.show { display: block; }
+#loading { padding: 30px 0; text-align: center; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body class="viz-root">
+<div class="wrap">
+  <header>
+    <div>
+      <h1>创业板 · 红利 监测</h1>
+      <div class="sub" id="update-time">数据加载中…</div>
+    </div>
+    <button id="theme-btn" title="切换深浅色" aria-label="切换深浅色">◐</button>
+  </header>
+
+  <div id="err"></div>
+  <div id="demo-banner" style="display:none;border:1px solid var(--border);background:var(--surface-1);border-radius:12px;padding:10px 14px;font-size:12.5px;color:var(--text-secondary);margin-bottom:12px">⚠ 当前展示的是<b>示例数据</b>,完成部署并首次更新后会自动替换为真实数据。</div>
+  <div id="loading">数据加载中…</div>
+
+  <div id="app" style="display:none">
+    <div class="card">
+      <div class="hero-label">创业板指 / 中证红利 · 比值</div>
+      <div class="hero-row">
+        <div class="hero-value" id="hero-value">--</div>
+        <div class="chip" id="hero-chip"><span class="dot"></span><span id="hero-chip-text">--</span></div>
+      </div>
+      <div class="hero-meta" id="hero-meta"></div>
+    </div>
+
+    <div class="tiles" style="margin-bottom:12px">
+      <div class="tile"><div class="t-label"><span class="t-dot" style="background:var(--series-1)"></span>创业板估值百分位</div><div class="t-value" id="t-cyb">--</div><div class="t-delta" id="d-cyb"></div></div>
+      <div class="tile"><div class="t-label"><span class="t-dot" style="background:var(--series-2)"></span>红利低波估值百分位</div><div class="t-value" id="t-hlb">--</div><div class="t-delta" id="d-hlb"></div></div>
+      <div class="tile"><div class="t-label"><span class="t-dot" style="background:var(--series-2)"></span>红利低波股息率</div><div class="t-value" id="t-dy">--</div><div class="t-delta" id="d-dy"></div></div>
+      <div class="tile"><div class="t-label"><span class="t-dot" style="background:var(--series-2)"></span>红利低波股债利差</div><div class="t-value" id="t-sp">--</div><div class="t-delta" id="d-sp"></div></div>
+    </div>
+
+    <div class="filters" id="filters">
+      <button data-days="365">近1年</button>
+      <button data-days="1095">近3年</button>
+      <button data-days="1825">近5年</button>
+      <button data-days="0" class="active">全部</button>
+    </div>
+
+    <div class="card">
+      <h2>创业板指 / 中证红利 比值</h2>
+      <div class="desc">比值越低创业板越便宜。<b>&lt; 0.4 创业板机会区</b> · 0.4–0.6 中性 · <b>&gt; 0.6 红利低波机会区</b></div>
+      <div class="chart tall" id="chart-ratio"></div>
+    </div>
+
+    <div class="card">
+      <h2>创业板估值百分位</h2>
+      <div class="desc">创业板指 PE TTM 近五年分位(经易方达创业板ETF 159915 跟踪指数口径)。低于 30% 为历史低估区,高于 70% 为高估区。</div>
+      <div class="chart" id="chart-cyb_pe_pct"></div>
+    </div>
+
+    <div class="card">
+      <h2>红利低波估值百分位</h2>
+      <div class="desc">中证红利低波动指数 PE TTM 近五年分位(经华泰柏瑞红利低波ETF 512890 跟踪指数口径)。</div>
+      <div class="chart" id="chart-hlb_pe_pct"></div>
+    </div>
+
+    <div class="card">
+      <h2>红利低波股息率(近12个月)</h2>
+      <div class="desc">由红利低波全收益指数与价格指数之差推演(如不可用则按 512890 分红推演)。</div>
+      <div class="chart" id="chart-hlb_dy"></div>
+    </div>
+
+    <div class="card">
+      <h2>红利低波股债利差</h2>
+      <div class="desc">股息率 − 10年期国债到期收益率。大于 0 表示股息率高于国债,红利资产相对有吸引力。</div>
+      <div class="chart" id="chart-spread"></div>
+    </div>
+
+    <div class="card">
+      <h2>最近交易日数据</h2>
+      <div style="overflow-x:auto"><table id="table"></table></div>
+      <div class="table-note">比值=创业板指/中证红利收盘价;百分位为 PE TTM 近五年分位;股债利差=股息率−10年国债收益率(百分点)。</div>
+    </div>
+
+    <footer>
+      <b>数据来源</b>:指数与估值·同花顺金融数据API(fuyao.aicubes.cn);10年国债收益率·中国货币网(中债)。<br>
+      <b>更新</b>:每个交易日约 18:35 自动更新(GitHub Actions),休市日数据不变。<br>
+      <b>信号规则</b>:比值 &lt; 0.4 预示创业板较好的投资机会;比值 &gt; 0.6 预示红利低波较好的机会。<br>
+      本页面数据仅供参考,不构成任何投资建议。
+    </footer>
+  </div>
+</div>
+
+<script src="echarts.min.js"></script>
+<script>
+(function () {
+  "use strict";
+  var DATA = null, charts = {}, rangeDays = 0;
+
+  /* ---------- 主题 ---------- */
+  var THEMES = {
+    light: { surface:'#fcfcfb', ink:'#0b0b0b', secondary:'#52514e', muted:'#898781',
+             grid:'#e1e0d9', baseline:'#c3c2b7', border:'rgba(11,11,11,0.12)',
+             blue:'#2a78d6', orange:'#eb6834' },
+    dark:  { surface:'#1a1a19', ink:'#f0efec', secondary:'#c3c2b7', muted:'#898781',
+             grid:'#2c2c2a', baseline:'#383835', border:'rgba(255,255,255,0.14)',
+             blue:'#3987e5', orange:'#d95926' }
+  };
+  function getMode() {
+    var stored = localStorage.getItem('monitor-theme');
+    if (stored === 'light' || stored === 'dark') return stored;
+    return window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  function applyMode(mode, rerender) {
+    document.documentElement.dataset.theme = mode;
+    if (rerender) Object.keys(charts).forEach(function (k) { renderChart(k); });
+    document.querySelector('meta[name=theme-color]').setAttribute('content', mode === 'dark' ? '#0d0d0d' : '#f9f9f7');
+  }
+  document.getElementById('theme-btn').addEventListener('click', function () {
+    var m = getMode() === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('monitor-theme', m);
+    applyMode(m, true);
+  });
+  if (matchMedia) matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {
+    if (!localStorage.getItem('monitor-theme')) applyMode(getMode(), true);
+  });
+  applyMode(getMode(), false);
+
+  /* ---------- 图表定义 ---------- */
+  var DEFS = [
+    { key:'ratio',      color:'blue',   yMin:null, yMax:null,
+      fmt:function(v){return v.toFixed(3);},
+      markLines:[ {v:0.4,label:'0.4 · 创业板机会区',pos:'insideEndTop'},
+                  {v:0.6,label:'0.6 · 红利低波机会区',pos:'insideEndBottom'} ] },
+    { key:'cyb_pe_pct', color:'blue',   yMin:0, yMax:100,
+      fmt:function(v){return v.toFixed(1)+'%';},
+      markLines:[ {v:30,label:'30% 低估区',pos:'insideEndBottom'},
+                  {v:70,label:'70% 高估区',pos:'insideEndTop'} ] },
+    { key:'hlb_pe_pct', color:'orange', yMin:0, yMax:100,
+      fmt:function(v){return v.toFixed(1)+'%';},
+      markLines:[ {v:30,label:'30% 低估区',pos:'insideEndBottom'},
+                  {v:70,label:'70% 高估区',pos:'insideEndTop'} ] },
+    { key:'hlb_dy',     color:'orange', yMin:null, yMax:null,
+      fmt:function(v){return v.toFixed(2)+'%';}, markLines:[] },
+    { key:'spread',     color:'orange', yMin:null, yMax:null,
+      fmt:function(v){return v.toFixed(2)+'%';},
+      markLines:[ {v:0,label:'0 基准',pos:'insideEndBottom',baseline:true} ] }
+  ];
+
+  function fmtDelta(v, unit) {
+    if (v === null || v === undefined || isNaN(v)) return '';
+    var s = (v >= 0 ? '▲ +' : '▼ ') + v.toFixed(unit === 'pp' ? 2 : 2);
+    return s + (unit === 'pp' ? 'pp' : '');
+  }
+
+  function renderChart(key) {
+    var def = DEFS.filter(function (d) { return d.key === key; })[0];
+    var t = THEMES[getMode()];
+    var el = document.getElementById('chart-' + key);
+    var s = DATA.series[key];
+    if (!s || !s.points || !s.points.length) {
+      el.innerHTML = '<div class="chart-empty">暂无数据</div>';
+      return;
+    }
+    var dates = s.points.map(function (p) { return p[0]; });
+    var vals = s.points.map(function (p) { return p[1]; });
+    var lastIdx = vals.length - 1;
+    while (lastIdx >= 0 && (vals[lastIdx] === null || isNaN(vals[lastIdx]))) lastIdx--;
+    if (lastIdx < 0) { el.innerHTML = '<div class="chart-empty">暂无数据</div>'; return; }
+
+    var chart = charts[key] || echarts.init(el);
+    charts[key] = chart;
+
+    var zoom = { type:'inside', filterMode:'none' };
+    if (rangeDays > 0) {
+      zoom.startValue = shiftDate(dates[dates.length - 1], -rangeDays);
+      zoom.endValue = dates[dates.length - 1];
+    }
+
+    var opt = {
+      grid: { left: 10, right: 14, top: 30, bottom: 26, containLabel: true },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: t.surface, borderColor: t.border,
+        textStyle: { color: t.ink, fontSize: 12 },
+        axisPointer: { type: 'cross', label: { backgroundColor: t.ink, color: t.surface, fontSize: 11 } },
+        valueFormatter: def.fmt
+      },
+      xAxis: {
+        type: 'category', data: dates, boundaryGap: false,
+        axisLine: { lineStyle: { color: t.baseline } }, axisTick: { show: false },
+        axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true, formatter: function (v) { return v.slice(0, 7); } }
+      },
+      yAxis: {
+        type: 'value', min: def.yMin, max: def.yMax, scale: def.yMin === null,
+        splitLine: { lineStyle: { color: t.grid } }, axisLine: { show: false },
+        axisLabel: { color: t.muted, fontSize: 11 }
+      },
+      dataZoom: [zoom],
+      series: [{
+        type: 'line', data: vals, symbol: 'none', connectNulls: false, silent: false,
+        lineStyle: { width: 2, color: t[def.color] },
+        itemStyle: { color: t[def.color] },
+        emphasis: { focus: 'series', lineStyle: { width: 2 } },
+        markPoint: {
+          silent: true, symbol: 'circle', symbolSize: 8,
+          itemStyle: { color: t[def.color], borderColor: t.surface, borderWidth: 2 },
+          label: { show: false },
+          data: [{ coord: [dates[lastIdx], vals[lastIdx]] }]
+        },
+        markLine: def.markLines.map(function (ml) {
+          return {
+            silent: true, symbol: 'none',
+            lineStyle: { color: t.baseline, type: ml.baseline ? 'solid' : 'dashed', width: 1 },
+            label: { show: true, position: ml.pos || 'insideEndTop', color: t.secondary, fontSize: 11, formatter: ml.label },
+            data: [{ yAxis: ml.v }]
+          };
+        })
+      }]
+    };
+    chart.setOption(opt, true);
+  }
+
+  function shiftDate(iso, days) {
+    var d = new Date(iso + 'T00:00:00');
+    d.setDate(d.getDate() + days);
+    var m = ('0' + (d.getMonth() + 1)).slice(-2), dd = ('0' + d.getDate()).slice(-2);
+    return d.getFullYear() + '-' + m + '-' + dd;
+  }
+
+  function setRange(days) {
+    rangeDays = days;
+    var btns = document.querySelectorAll('#filters button');
+    for (var i = 0; i < btns.length; i++) btns[i].classList.toggle('active', +btns[i].dataset.days === days);
+    Object.keys(charts).forEach(function (k) {
+      var def = DEFS.filter(function (d) { return d.key === k; })[0];
+      var s = DATA.series[k];
+      if (!s || !s.points || !s.points.length) return;
+      var dates = s.points.map(function (p) { return p[0]; });
+      var last = dates[dates.length - 1];
+      if (days > 0) {
+        charts[k].dispatchAction({ type: 'dataZoom', startValue: shiftDate(last, -days), endValue: last });
+      } else {
+        charts[k].dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+      }
+    });
+  }
+
+  /* ---------- 页面渲染 ---------- */
+  function num(v, d) { return (v === null || v === undefined || isNaN(v)) ? '--' : v.toFixed(d); }
+
+  function renderMeta() {
+    var L = DATA.latest, meta = DATA.meta || {};
+    document.getElementById('update-time').textContent =
+      '数据截至 ' + (L.date || '--') + ' · 生成于 ' + (DATA.generated_at || '').replace('T', ' ').slice(0, 16);
+
+    document.getElementById('hero-value').textContent = num(L.ratio, 3);
+    var chip = document.getElementById('hero-chip');
+    chip.className = 'chip chip-' + (L.signal === 'cyb' ? 'cyb' : L.signal === 'hlb' ? 'hlb' : 'neutral');
+    document.getElementById('hero-chip-text').textContent =
+      L.signal === 'cyb' ? '创业板机会区' : L.signal === 'hlb' ? '红利低波机会区' : '中性区间';
+
+    var d = L.ratio_prev !== null && L.ratio_prev !== undefined ? L.ratio - L.ratio_prev : null;
+    document.getElementById('hero-meta').innerHTML =
+      (d === null ? '' : '较上一交易日 <b>' + (d >= 0 ? '+' : '') + d.toFixed(3) + '</b> · ') +
+      '<b>&lt;0.4</b> 创业板机会 · <b>&gt;0.6</b> 红利低波机会';
+
+    setTile('cyb', L.cyb_pe_pct, '%', '1');
+    setTile('hlb', L.hlb_pe_pct, '%', '1');
+    setTile('dy', L.hlb_dy, '%', '2');
+    setTile('sp', L.spread, '%', '2');
+  }
+
+  function setTile(id, v, suffix, dec) {
+    document.getElementById('t-' + id).textContent = num(v, +dec) + (v === null || v === undefined ? '' : suffix);
+    var key = { cyb: 'cyb_pe_pct', hlb: 'hlb_pe_pct', dy: 'hlb_dy', sp: 'spread' }[id];
+    var pts = (DATA.series[key] || {}).points || [];
+    var d = null;
+    if (pts.length > 1 && pts[pts.length - 1][1] !== null && pts[pts.length - 2][1] !== null) {
+      d = pts[pts.length - 1][1] - pts[pts.length - 2][1];
+    }
+    document.getElementById('d-' + id).textContent = d === null ? '' : '较上一交易日 ' + fmtDelta(d, 'pp');
+  }
+
+  function renderTable() {
+    var keys = ['ratio', 'cyb_pe_pct', 'hlb_pe_pct', 'hlb_dy', 'spread'];
+    var maps = {};
+    var allDates = [];
+    keys.forEach(function (k) {
+      var m = {}; maps[k] = m;
+      (DATA.series[k] ? DATA.series[k].points : []).forEach(function (p) { m[p[0]] = p[1]; });
+    });
+    var ratioPts = (DATA.series.ratio || {}).points || [];
+    allDates = ratioPts.map(function (p) { return p[0]; });
+    var lastN = allDates.slice(-5).reverse();
+
+    var head = ['日期', '比值', '创业板PE分位', '红利低波PE分位', '股息率', '股债利差'];
+    var th = head.map(function (h) { return '<th>' + h + '</th>'; }).join('');
+    var rows = lastN.map(function (d, i) {
+      var cls = i === 0 ? ' class="latest"' : '';
+      var cells = [
+        '<td>' + d + '</td>',
+        '<td class="num">' + (maps.ratio[d] === undefined ? '--' : maps.ratio[d].toFixed(3)) + '</td>',
+        '<td class="num">' + (maps.cyb_pe_pct[d] === undefined ? '--' : maps.cyb_pe_pct[d].toFixed(1) + '%') + '</td>',
+        '<td class="num">' + (maps.hlb_pe_pct[d] === undefined ? '--' : maps.hlb_pe_pct[d].toFixed(1) + '%') + '</td>',
+        '<td class="num">' + (maps.hlb_dy[d] === undefined ? '--' : maps.hlb_dy[d].toFixed(2) + '%') + '</td>',
+        '<td class="num">' + (maps.spread[d] === undefined ? '--' : maps.spread[d].toFixed(2) + '%') + '</td>'
+      ];
+      return '<tr' + cls + '>' + cells.join('') + '</tr>';
+    }).join('');
+    document.getElementById('table').innerHTML = '<tr>' + th + '</tr>' + rows;
+  }
+
+  /* ---------- 加载 ---------- */
+  fetch('data.json', { cache: 'no-cache' })
+    .then(function (r) {
+      if (!r.ok) throw new Error('data.json HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function (d) {
+      DATA = d;
+      if (DATA.demo) document.getElementById('demo-banner').style.display = 'block';
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      renderMeta();
+      renderTable();
+      DEFS.forEach(function (def) { renderChart(def.key); });
+      echarts.connect('monitor', Object.keys(charts).map(function (k) { return charts[k]; }));
+      setRange(0);
+    })
+    .catch(function (e) {
+      document.getElementById('loading').style.display = 'none';
+      var err = document.getElementById('err');
+      err.classList.add('show');
+      err.textContent = '数据加载失败:' + e.message + '。请稍后刷新重试。';
+    });
+
+  document.getElementById('filters').addEventListener('click', function (ev) {
+    var btn = ev.target.closest('button');
+    if (btn) setRange(+btn.dataset.days);
+  });
+})();
+</script>
+</body>
+</html>

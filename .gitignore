@@ -1,0 +1,5 @@
+fuyao_key.txt
+__pycache__/
+*.pyc
+*.log
+_preview/

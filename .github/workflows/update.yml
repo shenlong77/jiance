@@ -1,0 +1,34 @@
+name: update-data
+
+on:
+  schedule:
+    # 北京时间 18:35(UTC 10:35), 周一至周五, 收盘后抓取当日数据
+    - cron: "35 10 * * 1-5"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run updater
+        env:
+          FUYAO_API_KEY: ${{ secrets.FUYAO_API_KEY }}
+        run: python updater.py
+      - name: Commit data if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data.json
+          if git diff --cached --quiet; then
+            echo "数据无变化, 无需提交"
+          else
+            git commit -m "chore: 更新监测数据 $(date -u +%F)"
+            git push
+          fi
