@@ -400,7 +400,7 @@ def main():
     ratio = []
     if cyb_px and zzhl_px:
         m = dict(cyb_px)
-        ratio = [(d.isoformat(), round(m[d] / c, 4)) for d, c in zzhl_px if d in m and m[d]]
+        ratio = [[d.isoformat(), round(m[d] / c, 4)] for d, c in zzhl_px if d in m and m[d]]
     log(f"比值: {len(ratio)} 点")
 
     # 更新锚定(有真实指数数据时): factor = 指数比值 / ETF比值
@@ -450,7 +450,7 @@ def main():
     spread = []
     for d, dy in hlb_dy:
         if d in bond_map:
-            spread.append((d.isoformat(), round(dy - bond_map[d], 4)))
+            spread.append([d.isoformat(), round(dy - bond_map[d], 4)])
 
     # 7. 组装输出
     def pts(pairs):
