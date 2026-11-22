@@ -17,9 +17,9 @@
   --grid: #e1e0d9;
   --baseline: #c3c2b7;
   --border: rgba(11,11,11,0.10);
-  --series-1: #2a78d6;   /* 创业板(蓝) */
-  --series-2: #eb6834;   /* 红利(橙) */
-  --series-3: #1baf7a;   /* 沪深300(青绿) */
+  --series-1: #d64541;   /* 主指标(红) */
+  --series-2: #d64541;   /* 红利(红) */
+  --series-3: #1baf7a;   /* 沪深300(绿) */
 }
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) .viz-root {
@@ -33,8 +33,8 @@
     --grid: #2c2c2a;
     --baseline: #383835;
     --border: rgba(255,255,255,0.10);
-    --series-1: #3987e5;
-    --series-2: #d95926;
+    --series-1: #e05b52;
+    --series-2: #e05b52;
     --series-3: #199e70;
   }
 }
@@ -49,8 +49,8 @@
   --grid: #2c2c2a;
   --baseline: #383835;
   --border: rgba(255,255,255,0.10);
-  --series-1: #3987e5;
-  --series-2: #d95926;
+  --series-1: #e05b52;
+  --series-2: #e05b52;
   --series-3: #199e70;
 }
 :root[data-theme="light"] .viz-root {
@@ -249,10 +249,10 @@ footer b { color: var(--text-secondary); font-weight: 600; }
   var THEMES = {
     light: { surface:'#fcfcfb', ink:'#0b0b0b', secondary:'#52514e', muted:'#898781',
              grid:'#e1e0d9', baseline:'#c3c2b7', border:'rgba(11,11,11,0.12)',
-             blue:'#2a78d6', orange:'#eb6834', aqua:'#1baf7a' },
+             red:'#d64541', green:'#1baf7a' },
     dark:  { surface:'#1a1a19', ink:'#f0efec', secondary:'#c3c2b7', muted:'#898781',
              grid:'#2c2c2a', baseline:'#383835', border:'rgba(255,255,255,0.14)',
-             blue:'#3987e5', orange:'#d95926', aqua:'#199e70' }
+             red:'#e05b52', green:'#199e70' }
   };
   function getMode() {
     var stored = localStorage.getItem('monitor-theme');
@@ -276,25 +276,25 @@ footer b { color: var(--text-secondary); font-weight: 600; }
 
   /* ---------- 图表定义 ---------- */
   var DEFS = [
-    { key:'ratio',      color:'blue',   yMin:null, yMax:null, legendName:'比值',
+    { key:'ratio',      color:'red',   yMin:null, yMax:null, legendName:'比值',
       fmt:function(v){return v.toFixed(3);},
       markLines:[ {v:0.4,label:'0.4 · 创业板机会区',pos:'insideEndTop'},
                   {v:0.6,label:'0.6 · 红利低波机会区',pos:'insideEndBottom'} ] },
-    { key:'cyb_pe_pct', color:'blue',   yMin:0, yMax:100, legendName:'创业板PE分位',
+    { key:'cyb_pe_pct', color:'red',   yMin:0, yMax:100, legendName:'创业板PE分位',
       fmt:function(v){return v.toFixed(1)+'%';},
       markLines:[ {v:30,label:'30% 低估区',pos:'insideEndBottom'},
                   {v:70,label:'70% 高估区',pos:'insideEndTop'} ] },
-    { key:'hs300_pe_pct', color:'aqua', yMin:0, yMax:100, legendName:'沪深300PE分位',
+    { key:'hs300_pe_pct', color:'green', yMin:0, yMax:100, legendName:'沪深300PE分位',
       fmt:function(v){return v.toFixed(1)+'%';},
       markLines:[ {v:30,label:'30% 低估区',pos:'insideEndBottom'},
                   {v:70,label:'70% 高估区',pos:'insideEndTop'} ] },
-    { key:'hlb_pe_pct', color:'orange', yMin:0, yMax:100, legendName:'红利低波PE分位',
+    { key:'hlb_pe_pct', color:'red', yMin:0, yMax:100, legendName:'红利低波PE分位',
       fmt:function(v){return v.toFixed(1)+'%';},
       markLines:[ {v:30,label:'30% 低估区',pos:'insideEndBottom'},
                   {v:70,label:'70% 高估区',pos:'insideEndTop'} ] },
-    { key:'hlb_dy',     color:'orange', yMin:null, yMax:null, legendName:'股息率',
+    { key:'hlb_dy',     color:'red', yMin:null, yMax:null, legendName:'股息率',
       fmt:function(v){return v.toFixed(2)+'%';}, markLines:[] },
-    { key:'spread',     color:'orange', yMin:null, yMax:null, legendName:'股债利差',
+    { key:'spread',     color:'red', yMin:null, yMax:null, legendName:'股债利差',
       fmt:function(v){return v.toFixed(2)+'%';},
       markLines:[ {v:0,label:'0 基准',pos:'insideEndBottom',baseline:true} ] }
   ];
@@ -398,8 +398,8 @@ footer b { color: var(--text-secondary); font-weight: 600; }
         {
           name: '沪深300(右轴)', type: 'line', data: HS300_PAIRS, yAxisIndex: 1,
           symbol: 'none', connectNulls: false,
-          lineStyle: { width: 2, type: 'dashed', color: t.aqua },
-          itemStyle: { color: t.aqua },
+          lineStyle: { width: 2, type: 'dashed', color: t.green },
+          itemStyle: { color: t.green },
           tooltip: { valueFormatter: function (v) { return v.toFixed(2); } },
           emphasis: { focus: 'series' }
         }
