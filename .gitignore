@@ -6,3 +6,8 @@ _preview/
 
 _tools/
 *.bat
+
+tunnel_url.txt
+_mk_tunnel_vbs.py
+_start_tunnel.vbs
+tunnel_current_url.txt
