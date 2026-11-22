@@ -305,6 +305,13 @@ footer b { color: var(--text-secondary); font-weight: 600; }
     return s + (unit === 'pp' ? 'pp' : '');
   }
 
+  var ok = function (p) { return p[1] !== null && p[1] !== undefined && !isNaN(p[1]); };
+  var tsOf = function (iso) {
+    var p = iso.split('-');
+    return Date.UTC(+p[0], +p[1] - 1, +p[2]);
+  };
+  var HS300_PAIRS = [];  // 沪深300 时间戳对, 各图共用
+
   function renderChart(key) {
     var def = DEFS.filter(function (d) { return d.key === key; })[0];
     var t = THEMES[getMode()];
@@ -312,18 +319,14 @@ footer b { color: var(--text-secondary); font-weight: 600; }
     var s = DATA.series[key];
     if (!s || !s.points || !s.points.length) {
       el.innerHTML = '<div class="chart-empty">暂无数据</div>';
+      delete charts[key];
       return;
     }
-    var ok = function (p) { return p[1] !== null && p[1] !== undefined && !isNaN(p[1]); };
-    var mainPairs = s.points.filter(ok);
-    var hs = DATA.series.hs300;
-    var hsPairs = (hs && hs.points ? hs.points : []).filter(ok);
-    if (!mainPairs.length) { el.innerHTML = '<div class="chart-empty">暂无数据</div>'; return; }
-    // 合并日期轴(主指标 + 沪深300)
-    var dateSet = {};
-    mainPairs.forEach(function (p) { dateSet[p[0]] = 1; });
-    hsPairs.forEach(function (p) { dateSet[p[0]] = 1; });
-    var dates = Object.keys(dateSet).sort();
+    if (!HS300_PAIRS.length && DATA.series.hs300) {
+      HS300_PAIRS = DATA.series.hs300.points.filter(ok).map(function (p) { return [tsOf(p[0]), p[1]]; });
+    }
+    var mainPairs = s.points.filter(ok).map(function (p) { return [tsOf(p[0]), p[1]]; });
+    if (!mainPairs.length) { el.innerHTML = '<div class="chart-empty">暂无数据</div>'; delete charts[key]; return; }
     var lastMain = mainPairs[mainPairs.length - 1];
 
     var chart = charts[key] || echarts.init(el);
@@ -331,12 +334,13 @@ footer b { color: var(--text-secondary); font-weight: 600; }
 
     var zoom = { type:'inside', filterMode:'none' };
     if (rangeDays > 0) {
-      zoom.startValue = shiftDate(lastMain[0], -rangeDays);
+      zoom.startValue = lastMain[0] - rangeDays * 86400000;
       zoom.endValue = lastMain[0];
     }
 
     var opt = {
-      grid: { left: 10, right: 48, top: 30, bottom: 26, containLabel: true },
+      // 统一边距 + 固定轴标签宽度 -> 各图绘图区左右边缘对齐
+      grid: { left: 8, right: 8, top: 30, bottom: 24, containLabel: true },
       legend: {
         top: 0, right: 2, itemWidth: 14, itemHeight: 8,
         textStyle: { color: t.secondary, fontSize: 11 },
@@ -349,20 +353,21 @@ footer b { color: var(--text-secondary); font-weight: 600; }
         axisPointer: { type: 'cross', label: { backgroundColor: t.ink, color: t.surface, fontSize: 11 } }
       },
       xAxis: {
-        type: 'category', boundaryGap: false,
+        // 共享时间轴: 相同时间档下各图刻度位置一致
+        type: 'time',
         axisLine: { lineStyle: { color: t.baseline } }, axisTick: { show: false },
-        axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true, formatter: function (v) { return v.slice(0, 7); } }
+        axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true, formatter: '{yyyy}-{MM}' }
       },
       yAxis: [
         {
           type: 'value', min: def.yMin, max: def.yMax, scale: def.yMin === null,
           splitLine: { lineStyle: { color: t.grid } }, axisLine: { show: false },
-          axisLabel: { color: t.muted, fontSize: 11 }
+          axisLabel: { color: t.muted, fontSize: 11, width: 46, align: 'right' }
         },
         {
           type: 'value', position: 'right', scale: true,
           splitLine: { show: false }, axisLine: { show: false },
-          axisLabel: { color: t.muted, fontSize: 11 },
+          axisLabel: { color: t.muted, fontSize: 11, width: 52, align: 'left' },
           name: '沪深300', nameTextStyle: { color: t.muted, fontSize: 10 }
         }
       ],
@@ -391,7 +396,7 @@ footer b { color: var(--text-secondary); font-weight: 600; }
           })
         },
         {
-          name: '沪深300(右轴)', type: 'line', data: hsPairs, yAxisIndex: 1,
+          name: '沪深300(右轴)', type: 'line', data: HS300_PAIRS, yAxisIndex: 1,
           symbol: 'none', connectNulls: false,
           lineStyle: { width: 2, type: 'dashed', color: t.aqua },
           itemStyle: { color: t.aqua },
@@ -403,27 +408,28 @@ footer b { color: var(--text-secondary); font-weight: 600; }
     chart.setOption(opt, true);
   }
 
-  function shiftDate(iso, days) {
-    var d = new Date(iso + 'T00:00:00');
-    d.setDate(d.getDate() + days);
-    var m = ('0' + (d.getMonth() + 1)).slice(-2), dd = ('0' + d.getDate()).slice(-2);
-    return d.getFullYear() + '-' + m + '-' + dd;
-  }
-
   function setRange(days) {
     rangeDays = days;
     var btns = document.querySelectorAll('#filters button');
     for (var i = 0; i < btns.length; i++) btns[i].classList.toggle('active', +btns[i].dataset.days === days);
+    // 所有图共用同一时间范围(以全部序列的最新日期为准), 保证横轴对齐
+    var lastTs = 0;
+    Object.keys(DATA.series).forEach(function (k) {
+      var pts = (DATA.series[k] || {}).points || [];
+      for (var i = pts.length - 1; i >= 0; i--) {
+        var ts = tsOf(pts[i][0]);
+        if (ts) { if (ts > lastTs) lastTs = ts; break; }
+      }
+    });
+    if (!lastTs) return;
+    var startTs = days > 0 ? lastTs - days * 86400000 : null;
     Object.keys(charts).forEach(function (k) {
-      var def = DEFS.filter(function (d) { return d.key === k; })[0];
-      var s = DATA.series[k];
-      if (!s || !s.points || !s.points.length) return;
-      var dates = s.points.map(function (p) { return p[0]; });
-      var last = dates[dates.length - 1];
-      if (days > 0) {
-        charts[k].dispatchAction({ type: 'dataZoom', startValue: shiftDate(last, -days), endValue: last });
+      var c = charts[k];
+      if (!c) return;
+      if (startTs !== null) {
+        c.dispatchAction({ type: 'dataZoom', startValue: startTs, endValue: lastTs });
       } else {
-        charts[k].dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+        c.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
       }
     });
   }
@@ -512,7 +518,7 @@ footer b { color: var(--text-secondary); font-weight: 600; }
       renderTable();
       DEFS.forEach(function (def) { renderChart(def.key); });
       echarts.connect('monitor', Object.keys(charts).map(function (k) { return charts[k]; }));
-      setRange(0);
+      setRange(1825);
     })
     .catch(function (e) {
       document.getElementById('loading').style.display = 'none';
