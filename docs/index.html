@@ -190,43 +190,37 @@ footer b { color: var(--text-secondary); font-weight: 600; }
 
     <div class="card">
       <h2>创业板指 / 中证红利 比值</h2>
-      <div class="desc">比值越低创业板越便宜。<b>&lt; 0.4 创业板机会区</b> · 0.4–0.6 中性 · <b>&gt; 0.6 红利低波机会区</b></div>
+      <div class="desc">比值越低创业板越便宜。<b>&lt; 0.4 创业板机会区</b> · 0.4–0.6 中性 · <b>&gt; 0.6 红利低波机会区</b>。虚线为沪深300点位(右轴)。</div>
       <div class="chart tall" id="chart-ratio"></div>
     </div>
 
     <div class="card">
-      <h2>沪深300 点位</h2>
-      <div class="desc">沪深300指数收盘点位,大盘整体走势参考。</div>
-      <div class="chart" id="chart-hs300"></div>
-    </div>
-
-    <div class="card">
       <h2>创业板估值百分位</h2>
-      <div class="desc">创业板指 PE TTM 近五年分位(经易方达创业板ETF 159915 跟踪指数口径)。低于 30% 为历史低估区,高于 70% 为高估区。</div>
+      <div class="desc">创业板指 PE TTM 近五年分位(经易方达创业板ETF 159915 跟踪指数口径)。低于 30% 为历史低估区,高于 70% 为高估区。虚线为沪深300点位(右轴)。</div>
       <div class="chart" id="chart-cyb_pe_pct"></div>
     </div>
 
     <div class="card">
       <h2>沪深300估值百分位</h2>
-      <div class="desc">沪深300 PE TTM 近五年分位(经华泰柏瑞沪深300ETF 510300 跟踪指数口径)。</div>
+      <div class="desc">沪深300 PE TTM 近五年分位(经华泰柏瑞沪深300ETF 510300 跟踪指数口径)。虚线为沪深300点位(右轴)。</div>
       <div class="chart" id="chart-hs300_pe_pct"></div>
     </div>
 
     <div class="card">
       <h2>红利低波估值百分位</h2>
-      <div class="desc">中证红利低波动指数 PE TTM 近五年分位(经华泰柏瑞红利低波ETF 512890 跟踪指数口径)。</div>
+      <div class="desc">中证红利低波动指数 PE TTM 近五年分位(经华泰柏瑞红利低波ETF 512890 跟踪指数口径)。虚线为沪深300点位(右轴)。</div>
       <div class="chart" id="chart-hlb_pe_pct"></div>
     </div>
 
     <div class="card">
       <h2>红利低波股息率(近12个月)</h2>
-      <div class="desc">由红利低波全收益指数与价格指数之差推演(如不可用则按 512890 分红推演)。</div>
+      <div class="desc">由红利低波全收益指数与价格指数之差推演(如不可用则按 512890 分红推演)。虚线为沪深300点位(右轴)。</div>
       <div class="chart" id="chart-hlb_dy"></div>
     </div>
 
     <div class="card">
       <h2>红利低波股债利差</h2>
-      <div class="desc">股息率 − 10年期国债到期收益率。大于 0 表示股息率高于国债,红利资产相对有吸引力。</div>
+      <div class="desc">股息率 − 10年期国债到期收益率。大于 0 表示股息率高于国债,红利资产相对有吸引力。虚线为沪深300点位(右轴)。</div>
       <div class="chart" id="chart-spread"></div>
     </div>
 
@@ -282,27 +276,25 @@ footer b { color: var(--text-secondary); font-weight: 600; }
 
   /* ---------- 图表定义 ---------- */
   var DEFS = [
-    { key:'ratio',      color:'blue',   yMin:null, yMax:null,
+    { key:'ratio',      color:'blue',   yMin:null, yMax:null, legendName:'比值',
       fmt:function(v){return v.toFixed(3);},
       markLines:[ {v:0.4,label:'0.4 · 创业板机会区',pos:'insideEndTop'},
                   {v:0.6,label:'0.6 · 红利低波机会区',pos:'insideEndBottom'} ] },
-    { key:'hs300',      color:'aqua',   yMin:null, yMax:null,
-      fmt:function(v){return v.toFixed(2);}, markLines:[] },
-    { key:'cyb_pe_pct', color:'blue',   yMin:0, yMax:100,
+    { key:'cyb_pe_pct', color:'blue',   yMin:0, yMax:100, legendName:'创业板PE分位',
       fmt:function(v){return v.toFixed(1)+'%';},
       markLines:[ {v:30,label:'30% 低估区',pos:'insideEndBottom'},
                   {v:70,label:'70% 高估区',pos:'insideEndTop'} ] },
-    { key:'hs300_pe_pct', color:'aqua', yMin:0, yMax:100,
+    { key:'hs300_pe_pct', color:'aqua', yMin:0, yMax:100, legendName:'沪深300PE分位',
       fmt:function(v){return v.toFixed(1)+'%';},
       markLines:[ {v:30,label:'30% 低估区',pos:'insideEndBottom'},
                   {v:70,label:'70% 高估区',pos:'insideEndTop'} ] },
-    { key:'hlb_pe_pct', color:'orange', yMin:0, yMax:100,
+    { key:'hlb_pe_pct', color:'orange', yMin:0, yMax:100, legendName:'红利低波PE分位',
       fmt:function(v){return v.toFixed(1)+'%';},
       markLines:[ {v:30,label:'30% 低估区',pos:'insideEndBottom'},
                   {v:70,label:'70% 高估区',pos:'insideEndTop'} ] },
-    { key:'hlb_dy',     color:'orange', yMin:null, yMax:null,
+    { key:'hlb_dy',     color:'orange', yMin:null, yMax:null, legendName:'股息率',
       fmt:function(v){return v.toFixed(2)+'%';}, markLines:[] },
-    { key:'spread',     color:'orange', yMin:null, yMax:null,
+    { key:'spread',     color:'orange', yMin:null, yMax:null, legendName:'股债利差',
       fmt:function(v){return v.toFixed(2)+'%';},
       markLines:[ {v:0,label:'0 基准',pos:'insideEndBottom',baseline:true} ] }
   ];
@@ -322,61 +314,91 @@ footer b { color: var(--text-secondary); font-weight: 600; }
       el.innerHTML = '<div class="chart-empty">暂无数据</div>';
       return;
     }
-    var dates = s.points.map(function (p) { return p[0]; });
-    var vals = s.points.map(function (p) { return p[1]; });
-    var lastIdx = vals.length - 1;
-    while (lastIdx >= 0 && (vals[lastIdx] === null || isNaN(vals[lastIdx]))) lastIdx--;
-    if (lastIdx < 0) { el.innerHTML = '<div class="chart-empty">暂无数据</div>'; return; }
+    var ok = function (p) { return p[1] !== null && p[1] !== undefined && !isNaN(p[1]); };
+    var mainPairs = s.points.filter(ok);
+    var hs = DATA.series.hs300;
+    var hsPairs = (hs && hs.points ? hs.points : []).filter(ok);
+    if (!mainPairs.length) { el.innerHTML = '<div class="chart-empty">暂无数据</div>'; return; }
+    // 合并日期轴(主指标 + 沪深300)
+    var dateSet = {};
+    mainPairs.forEach(function (p) { dateSet[p[0]] = 1; });
+    hsPairs.forEach(function (p) { dateSet[p[0]] = 1; });
+    var dates = Object.keys(dateSet).sort();
+    var lastMain = mainPairs[mainPairs.length - 1];
 
     var chart = charts[key] || echarts.init(el);
     charts[key] = chart;
 
     var zoom = { type:'inside', filterMode:'none' };
     if (rangeDays > 0) {
-      zoom.startValue = shiftDate(dates[dates.length - 1], -rangeDays);
-      zoom.endValue = dates[dates.length - 1];
+      zoom.startValue = shiftDate(lastMain[0], -rangeDays);
+      zoom.endValue = lastMain[0];
     }
 
     var opt = {
-      grid: { left: 10, right: 14, top: 30, bottom: 26, containLabel: true },
+      grid: { left: 10, right: 48, top: 30, bottom: 26, containLabel: true },
+      legend: {
+        top: 0, right: 2, itemWidth: 14, itemHeight: 8,
+        textStyle: { color: t.secondary, fontSize: 11 },
+        data: [def.legendName, '沪深300(右轴)']
+      },
       tooltip: {
         trigger: 'axis',
         backgroundColor: t.surface, borderColor: t.border,
         textStyle: { color: t.ink, fontSize: 12 },
-        axisPointer: { type: 'cross', label: { backgroundColor: t.ink, color: t.surface, fontSize: 11 } },
-        valueFormatter: def.fmt
+        axisPointer: { type: 'cross', label: { backgroundColor: t.ink, color: t.surface, fontSize: 11 } }
       },
       xAxis: {
-        type: 'category', data: dates, boundaryGap: false,
+        type: 'category', boundaryGap: false,
         axisLine: { lineStyle: { color: t.baseline } }, axisTick: { show: false },
         axisLabel: { color: t.muted, fontSize: 11, hideOverlap: true, formatter: function (v) { return v.slice(0, 7); } }
       },
-      yAxis: {
-        type: 'value', min: def.yMin, max: def.yMax, scale: def.yMin === null,
-        splitLine: { lineStyle: { color: t.grid } }, axisLine: { show: false },
-        axisLabel: { color: t.muted, fontSize: 11 }
-      },
-      dataZoom: [zoom],
-      series: [{
-        type: 'line', data: vals, symbol: 'none', connectNulls: false, silent: false,
-        lineStyle: { width: 2, color: t[def.color] },
-        itemStyle: { color: t[def.color] },
-        emphasis: { focus: 'series', lineStyle: { width: 2 } },
-        markPoint: {
-          silent: true, symbol: 'circle', symbolSize: 8,
-          itemStyle: { color: t[def.color], borderColor: t.surface, borderWidth: 2 },
-          label: { show: false },
-          data: [{ coord: [dates[lastIdx], vals[lastIdx]] }]
+      yAxis: [
+        {
+          type: 'value', min: def.yMin, max: def.yMax, scale: def.yMin === null,
+          splitLine: { lineStyle: { color: t.grid } }, axisLine: { show: false },
+          axisLabel: { color: t.muted, fontSize: 11 }
         },
-        markLine: def.markLines.map(function (ml) {
-          return {
-            silent: true, symbol: 'none',
-            lineStyle: { color: t.baseline, type: ml.baseline ? 'solid' : 'dashed', width: 1 },
-            label: { show: true, position: ml.pos || 'insideEndTop', color: t.secondary, fontSize: 11, formatter: ml.label },
-            data: [{ yAxis: ml.v }]
-          };
-        })
-      }]
+        {
+          type: 'value', position: 'right', scale: true,
+          splitLine: { show: false }, axisLine: { show: false },
+          axisLabel: { color: t.muted, fontSize: 11 },
+          name: '沪深300', nameTextStyle: { color: t.muted, fontSize: 10 }
+        }
+      ],
+      dataZoom: [zoom],
+      series: [
+        {
+          name: def.legendName, type: 'line', data: mainPairs,
+          symbol: 'none', connectNulls: false,
+          lineStyle: { width: 2, color: t[def.color] },
+          itemStyle: { color: t[def.color] },
+          tooltip: { valueFormatter: def.fmt },
+          emphasis: { focus: 'series', lineStyle: { width: 2 } },
+          markPoint: {
+            silent: true, symbol: 'circle', symbolSize: 8,
+            itemStyle: { color: t[def.color], borderColor: t.surface, borderWidth: 2 },
+            label: { show: false },
+            data: [{ coord: [lastMain[0], lastMain[1]] }]
+          },
+          markLine: def.markLines.map(function (ml) {
+            return {
+              silent: true, symbol: 'none',
+              lineStyle: { color: t.baseline, type: ml.baseline ? 'solid' : 'dashed', width: 1 },
+              label: { show: true, position: ml.pos || 'insideEndTop', color: t.secondary, fontSize: 11, formatter: ml.label },
+              data: [{ yAxis: ml.v }]
+            };
+          })
+        },
+        {
+          name: '沪深300(右轴)', type: 'line', data: hsPairs, yAxisIndex: 1,
+          symbol: 'none', connectNulls: false,
+          lineStyle: { width: 2, type: 'dashed', color: t.aqua },
+          itemStyle: { color: t.aqua },
+          tooltip: { valueFormatter: function (v) { return v.toFixed(2); } },
+          emphasis: { focus: 'series' }
+        }
+      ]
     };
     chart.setOption(opt, true);
   }
