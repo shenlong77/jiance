@@ -492,6 +492,7 @@ def main():
         "generated_at": dt.datetime.now(TZ).isoformat(timespec="seconds"),
         "series": {
             "ratio": {"name": "创业板指 / 中证红利", "points": ratio},
+            "cyb": {"name": "创业板指", "points": pts(cyb_px)},
             "hs300": {"name": "沪深300", "points": pts(hs300_px)},
             "cyb_pe_pct": {"name": "创业板估值百分位(PE TTM 五年分位)", "points": pts(cyb_pct)},
             "hs300_pe_pct": {"name": "沪深300估值百分位(PE TTM 五年分位)", "points": pts(hs300_pct)},
@@ -521,7 +522,7 @@ def main():
         latest["ratio_prev"] = ratio_p[-2][1] if len(ratio_p) > 1 else None
         r = latest["ratio"]
         latest["signal"] = "cyb" if r < 0.40 else ("hlb" if r > 0.60 else "neutral")
-    for key in ("hs300", "cyb_pe_pct", "hs300_pe_pct", "hlb_pe_pct", "hlb_dy", "spread"):
+    for key in ("cyb", "hs300", "cyb_pe_pct", "hs300_pe_pct", "hlb_pe_pct", "hlb_dy", "spread"):
         p = doc["series"][key]["points"]
         latest[key] = p[-1][1] if p else None
     latest["bond10y"] = sorted(bond_map.items())[-1][1] if bond_map else None

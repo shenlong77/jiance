@@ -173,7 +173,7 @@ footer b { color: var(--text-secondary); font-weight: 600; }
     <div class="tiles" style="margin-bottom:12px">
       <div class="tile"><div class="t-label"><span class="t-dot" style="background:var(--series-3)"></span>沪深300</div><div class="t-value" id="t-hs">--</div><div class="t-delta" id="d-hs"></div></div>
       <div class="tile"><div class="t-label"><span class="t-dot" style="background:var(--series-1)"></span>创业板估值百分位</div><div class="t-value" id="t-cyb">--</div><div class="t-delta" id="d-cyb"></div></div>
-      <div class="tile"><div class="t-label"><span class="t-dot" style="background:var(--series-3)"></span>沪深300估值百分位</div><div class="t-value" id="t-hsp">--</div><div class="t-delta" id="d-hsp"></div></div>
+      <div class="tile"><div class="t-label"><span class="t-dot" style="background:var(--series-1)"></span>沪深300估值百分位</div><div class="t-value" id="t-hsp">--</div><div class="t-delta" id="d-hsp"></div></div>
       <div class="tile"><div class="t-label"><span class="t-dot" style="background:var(--series-2)"></span>红利低波估值百分位</div><div class="t-value" id="t-hlb">--</div><div class="t-delta" id="d-hlb"></div></div>
       <div class="tile"><div class="t-label"><span class="t-dot" style="background:var(--series-2)"></span>红利低波股息率</div><div class="t-value" id="t-dy">--</div><div class="t-delta" id="d-dy"></div></div>
       <div class="tile"><div class="t-label"><span class="t-dot" style="background:var(--series-2)"></span>红利低波股债利差</div><div class="t-value" id="t-sp">--</div><div class="t-delta" id="d-sp"></div></div>
@@ -198,6 +198,12 @@ footer b { color: var(--text-secondary); font-weight: 600; }
       <h2>创业板估值百分位</h2>
       <div class="desc">创业板指 PE TTM 近五年分位(经易方达创业板ETF 159915 跟踪指数口径)。低于 30% 为历史低估区,高于 70% 为高估区。虚线为沪深300点位(右轴)。</div>
       <div class="chart" id="chart-cyb_pe_pct"></div>
+    </div>
+
+    <div class="card">
+      <h2>创业板指 · 估值分位</h2>
+      <div class="desc">创业板指点位(左轴, 红线)与创业板 PE TTM 近五年分位(右轴, 红色虚线)。</div>
+      <div class="chart tall" id="chart-cyb"></div>
     </div>
 
     <div class="card">
@@ -280,11 +286,17 @@ footer b { color: var(--text-secondary); font-weight: 600; }
       fmt:function(v){return v.toFixed(3);},
       markLines:[ {v:0.4,label:'0.4 · 创业板机会区',pos:'insideEndTop'},
                   {v:0.6,label:'0.6 · 红利低波机会区',pos:'insideEndBottom'} ] },
+    { key:'cyb',        color:'red',   yMin:null, yMax:null, legendName:'创业板指',
+      fmt:function(v){return v.toFixed(2);}, markLines:[],
+      extra: { key:'cyb_pe_pct', color:'red', yMin:0, yMax:100, legendName:'创业板估值分位',
+               fmt:function(v){return v.toFixed(1)+'%';},
+               markLines:[ {v:30,label:'30% 低估区',pos:'insideEndBottom'},
+                           {v:70,label:'70% 高估区',pos:'insideEndTop'} ] } },
     { key:'cyb_pe_pct', color:'red',   yMin:0, yMax:100, legendName:'创业板PE分位',
       fmt:function(v){return v.toFixed(1)+'%';},
       markLines:[ {v:30,label:'30% 低估区',pos:'insideEndBottom'},
                   {v:70,label:'70% 高估区',pos:'insideEndTop'} ] },
-    { key:'hs300_pe_pct', color:'green', yMin:0, yMax:100, legendName:'沪深300PE分位',
+    { key:'hs300_pe_pct', color:'red', yMin:0, yMax:100, legendName:'沪深300PE分位',
       fmt:function(v){return v.toFixed(1)+'%';},
       markLines:[ {v:30,label:'30% 低估区',pos:'insideEndBottom'},
                   {v:70,label:'70% 高估区',pos:'insideEndTop'} ] },
@@ -310,7 +322,15 @@ footer b { color: var(--text-secondary); font-weight: 600; }
     var p = iso.split('-');
     return Date.UTC(+p[0], +p[1] - 1, +p[2]);
   };
-  var HS300_PAIRS = [];  // 沪深300 时间戳对, 各图共用
+  var PAIRS_CACHE = {};  // 各序列时间戳对缓存
+  function pairsOf(seriesKey) {
+    if (!PAIRS_CACHE[seriesKey]) {
+      var s = DATA.series[seriesKey];
+      PAIRS_CACHE[seriesKey] = (s && s.points ? s.points : []).filter(ok)
+        .map(function (p) { return [tsOf(p[0]), p[1]]; });
+    }
+    return PAIRS_CACHE[seriesKey];
+  }
 
   function renderChart(key) {
     var def = DEFS.filter(function (d) { return d.key === key; })[0];
@@ -322,12 +342,15 @@ footer b { color: var(--text-secondary); font-weight: 600; }
       delete charts[key];
       return;
     }
-    if (!HS300_PAIRS.length && DATA.series.hs300) {
-      HS300_PAIRS = DATA.series.hs300.points.filter(ok).map(function (p) { return [tsOf(p[0]), p[1]]; });
-    }
-    var mainPairs = s.points.filter(ok).map(function (p) { return [tsOf(p[0]), p[1]]; });
+    var mainPairs = pairsOf(key);
     if (!mainPairs.length) { el.innerHTML = '<div class="chart-empty">暂无数据</div>'; delete charts[key]; return; }
     var lastMain = mainPairs[mainPairs.length - 1];
+
+    // 右轴序列: 有 extra 用 extra(如创业板估值分位), 否则叠加沪深300虚线
+    var extra = def.extra || null;
+    var rightPairs = extra ? pairsOf(extra.key) : pairsOf('hs300');
+    var rightColor = extra ? t[extra.color] : t.green;
+    var rightName = extra ? extra.legendName : '沪深300(右轴)';
 
     var chart = charts[key] || echarts.init(el);
     charts[key] = chart;
@@ -344,7 +367,7 @@ footer b { color: var(--text-secondary); font-weight: 600; }
       legend: {
         top: 0, right: 2, itemWidth: 14, itemHeight: 8,
         textStyle: { color: t.secondary, fontSize: 11 },
-        data: [def.legendName, '沪深300(右轴)']
+        data: [def.legendName, rightName]
       },
       tooltip: {
         trigger: 'axis',
@@ -362,13 +385,16 @@ footer b { color: var(--text-secondary); font-weight: 600; }
         {
           type: 'value', min: def.yMin, max: def.yMax, scale: def.yMin === null,
           splitLine: { lineStyle: { color: t.grid } }, axisLine: { show: false },
-          axisLabel: { color: t.muted, fontSize: 11, width: 46, align: 'right' }
+          // 坐标颜色与标的颜色一致
+          axisLabel: { color: t[def.color], fontSize: 11, width: 46, align: 'right' }
         },
         {
-          type: 'value', position: 'right', scale: true,
+          type: 'value', position: 'right',
+          min: extra ? extra.yMin : undefined, max: extra ? extra.yMax : undefined,
+          scale: !extra,
           splitLine: { show: false }, axisLine: { show: false },
-          axisLabel: { color: t.muted, fontSize: 11, width: 52, align: 'left' },
-          name: '沪深300', nameTextStyle: { color: t.muted, fontSize: 10 }
+          axisLabel: { color: rightColor, fontSize: 11, width: 52, align: 'left' },
+          name: extra ? undefined : '沪深300', nameTextStyle: { color: t.green, fontSize: 10 }
         }
       ],
       dataZoom: [zoom],
@@ -396,12 +422,20 @@ footer b { color: var(--text-secondary); font-weight: 600; }
           })
         },
         {
-          name: '沪深300(右轴)', type: 'line', data: HS300_PAIRS, yAxisIndex: 1,
+          name: rightName, type: 'line', data: rightPairs, yAxisIndex: 1,
           symbol: 'none', connectNulls: false,
-          lineStyle: { width: 2, type: 'dashed', color: t.green },
-          itemStyle: { color: t.green },
-          tooltip: { valueFormatter: function (v) { return v.toFixed(2); } },
-          emphasis: { focus: 'series' }
+          lineStyle: { width: 2, type: 'dashed', color: rightColor },
+          itemStyle: { color: rightColor },
+          tooltip: { valueFormatter: extra ? extra.fmt : function (v) { return v.toFixed(2); } },
+          emphasis: { focus: 'series' },
+          markLine: (extra && extra.markLines ? extra.markLines : []).map(function (ml) {
+            return {
+              silent: true, symbol: 'none',
+              lineStyle: { color: t.baseline, type: 'dashed', width: 1 },
+              label: { show: true, position: ml.pos || 'insideEndTop', color: t.secondary, fontSize: 11, formatter: ml.label },
+              data: [{ yAxis: ml.v }]
+            };
+          })
         }
       ]
     };
